@@ -17,38 +17,41 @@
 
 package org.apache.activemq.artemis.jdbc.store.file;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
-import org.apache.activemq.artemis.jdbc.store.drivers.JDBCConnectionProvider;
 import org.apache.activemq.artemis.jdbc.store.sql.SQLProvider;
 
 @SuppressWarnings("SynchronizeOnNonFinalField")
 public final class Db2SequentialFileDriver extends JDBCSequentialFileFactoryDriver {
 
-   private String replaceLargeObject;
+   private PreparedStatement replaceLargeObject;
 
    public Db2SequentialFileDriver() {
       super();
    }
 
-   public Db2SequentialFileDriver(JDBCConnectionProvider connectionProvider, SQLProvider provider) {
-      super(connectionProvider, provider);
+   public Db2SequentialFileDriver(DataSource dataSource, SQLProvider provider) {
+      super(dataSource, provider);
+   }
+
+   public Db2SequentialFileDriver(Connection connection, SQLProvider provider) {
+      super(connection, provider);
    }
 
    @Override
-   protected void prepareStatements() {
-      this.deleteFile = sqlProvider.getDeleteFileSQL();
-      this.createFile = sqlProvider.getInsertFileSQL();
-      this.createFileColumnNames = new String[]{"ID"};
-      this.selectFileByFileName = sqlProvider.getSelectFileByFileName();
-      this.copyFileRecord = sqlProvider.getCopyFileRecordByIdSQL();
-      this.renameFile = sqlProvider.getUpdateFileNameByIdSQL();
-      this.readLargeObject = sqlProvider.getReadLargeObjectSQL();
-      this.replaceLargeObject = sqlProvider.getReplaceLargeObjectSQL();
-      this.appendToLargeObject = sqlProvider.getAppendToLargeObjectSQL();
-      this.selectFileNamesByExtension = sqlProvider.getSelectFileNamesByExtensionSQL();
+   protected void prepareStatements() throws SQLException {
+      this.deleteFile = connection.prepareStatement(sqlProvider.getDeleteFileSQL());
+      this.createFile = connection.prepareStatement(sqlProvider.getInsertFileSQL(), new String[]{"ID"});
+      this.selectFileByFileName = connection.prepareStatement(sqlProvider.getSelectFileByFileName());
+      this.copyFileRecord = connection.prepareStatement(sqlProvider.getCopyFileRecordByIdSQL());
+      this.renameFile = connection.prepareStatement(sqlProvider.getUpdateFileNameByIdSQL());
+      this.readLargeObject = connection.prepareStatement(sqlProvider.getReadLargeObjectSQL());
+      this.replaceLargeObject = connection.prepareStatement(sqlProvider.getReplaceLargeObjectSQL());
+      this.appendToLargeObject = connection.prepareStatement(sqlProvider.getAppendToLargeObjectSQL());
+      this.selectFileNamesByExtension = connection.prepareStatement(sqlProvider.getSelectFileNamesByExtensionSQL());
    }
 
    @Override
@@ -56,8 +59,9 @@ public final class Db2SequentialFileDriver extends JDBCSequentialFileFactoryDriv
       if (data == null || data.length == 0) {
          return 0;
       }
-      try (Connection connection = connectionProvider.getConnection()) {
-         try (PreparedStatement largeObjectStatement = connection.prepareStatement(append ? appendToLargeObject : replaceLargeObject)) {
+      final PreparedStatement largeObjectStatement = append ? appendToLargeObject : replaceLargeObject;
+      synchronized (connection) {
+         try {
             connection.setAutoCommit(false);
             int bytesWritten;
             largeObjectStatement.setBytes(1, data);

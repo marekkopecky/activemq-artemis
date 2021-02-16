@@ -40,8 +40,10 @@ import org.apache.activemq.artemis.core.persistence.StorageManager;
 import org.apache.activemq.artemis.core.server.files.FileStoreMonitor;
 import org.apache.activemq.artemis.core.settings.HierarchicalRepository;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+import org.apache.activemq.artemis.jdbc.store.drivers.JDBCUtils;
 import org.apache.activemq.artemis.jdbc.store.file.JDBCSequentialFile;
 import org.apache.activemq.artemis.jdbc.store.file.JDBCSequentialFileFactory;
+import org.apache.activemq.artemis.jdbc.store.file.JDBCSequentialFileFactoryDriver;
 import org.apache.activemq.artemis.jdbc.store.sql.PropertySQLProvider;
 import org.apache.activemq.artemis.jdbc.store.sql.SQLProvider;
 import org.apache.activemq.artemis.utils.ExecutorFactory;
@@ -70,11 +72,15 @@ public class PagingStoreFactoryDatabase implements PagingStoreFactory {
 
    protected final StorageManager storageManager;
 
+   private JDBCSequentialFileFactoryDriver dbDriver;
+
    private DatabaseStorageConfiguration dbConf;
 
    private ExecutorFactory executorFactory;
 
    private JDBCSequentialFileFactory pagingFactoryFileFactory;
+
+   private JDBCSequentialFile directoryList;
 
    private final boolean readWholePage;
 
@@ -100,8 +106,8 @@ public class PagingStoreFactoryDatabase implements PagingStoreFactory {
                                      final ScheduledExecutorService scheduledExecutor,
                                      final ExecutorFactory executorFactory,
                                      final boolean syncNonTransactional,
-                                     final IOCriticalErrorListener criticalErrorListener) throws Exception {
-      this(dbConf, storageManager, syncTimeout, scheduledExecutor, executorFactory, syncNonTransactional, criticalErrorListener, false);
+                                     final IOCriticalErrorListener critialErrorListener) throws Exception {
+      this(dbConf, storageManager, syncTimeout, scheduledExecutor, executorFactory, syncNonTransactional, critialErrorListener, false);
    }
 
    public PagingStoreFactoryDatabase(final DatabaseStorageConfiguration dbConf,
@@ -110,7 +116,7 @@ public class PagingStoreFactoryDatabase implements PagingStoreFactory {
                                      final ScheduledExecutorService scheduledExecutor,
                                      final ExecutorFactory executorFactory,
                                      final boolean syncNonTransactional,
-                                     final IOCriticalErrorListener criticalErrorListener,
+                                     final IOCriticalErrorListener critialErrorListener,
                                      final boolean readWholePage) throws Exception {
       this.storageManager = storageManager;
       this.executorFactory = executorFactory;
@@ -118,7 +124,7 @@ public class PagingStoreFactoryDatabase implements PagingStoreFactory {
       this.scheduledExecutor = scheduledExecutor;
       this.syncTimeout = syncTimeout;
       this.dbConf = dbConf;
-      this.criticalErrorListener = criticalErrorListener;
+      this.criticalErrorListener = critialErrorListener;
       this.factoryToTableName = new HashMap<>();
       this.readWholePage = readWholePage;
       start();
@@ -131,11 +137,20 @@ public class PagingStoreFactoryDatabase implements PagingStoreFactory {
          if (pageStoreTableNamePrefix.length() > 10) {
             throw new IllegalStateException("The maximum name size for the page store table prefix is 10 characters: THE PAGING STORE CAN'T START");
          }
-         SQLProvider.Factory sqlProviderFactory = dbConf.getSqlProviderFactory();
-         if (sqlProviderFactory == null) {
-            sqlProviderFactory = new PropertySQLProvider.Factory(dbConf.getConnectionProvider());
+         if (dbConf.getDataSource() != null) {
+            SQLProvider.Factory sqlProviderFactory = dbConf.getSqlProviderFactory();
+            if (sqlProviderFactory == null) {
+               sqlProviderFactory = new PropertySQLProvider.Factory(dbConf.getDataSource());
+            }
+            pagingFactoryFileFactory = new JDBCSequentialFileFactory(dbConf.getDataSource(), sqlProviderFactory.create(pageStoreTableNamePrefix, SQLProvider.DatabaseStoreType.PAGE), executorFactory.getExecutor(), criticalErrorListener);
+         } else {
+            String driverClassName = dbConf.getJdbcDriverClassName();
+            pagingFactoryFileFactory = new JDBCSequentialFileFactory(dbConf.getJdbcConnectionUrl(), dbConf.getJdbcUser(), dbConf.getJdbcPassword(), driverClassName, JDBCUtils.getSQLProvider(driverClassName, pageStoreTableNamePrefix, SQLProvider.DatabaseStoreType.PAGE), executorFactory.getExecutor(), criticalErrorListener);
          }
-         pagingFactoryFileFactory = new JDBCSequentialFileFactory(dbConf.getConnectionProvider(), sqlProviderFactory.create(pageStoreTableNamePrefix, SQLProvider.DatabaseStoreType.PAGE), executorFactory.getExecutor(), criticalErrorListener);
+         final int jdbcNetworkTimeout = dbConf.getJdbcNetworkTimeout();
+         if (jdbcNetworkTimeout >= 0) {
+            pagingFactoryFileFactory.setNetworkTimeout(this.executorFactory.getExecutor(), jdbcNetworkTimeout);
+         }
          pagingFactoryFileFactory.start();
          started = true;
       }
@@ -263,14 +278,22 @@ public class PagingStoreFactoryDatabase implements PagingStoreFactory {
       directoryList.close();
 
       final SQLProvider sqlProvider;
-      final SQLProvider.Factory sqlProviderFactory;
-      if (dbConf.getSqlProviderFactory() != null) {
-         sqlProviderFactory = dbConf.getSqlProviderFactory();
+      if (dbConf.getDataSource() != null) {
+         final SQLProvider.Factory sqlProviderFactory;
+         if (dbConf.getSqlProviderFactory() != null) {
+            sqlProviderFactory = dbConf.getSqlProviderFactory();
+         } else {
+            sqlProviderFactory = new PropertySQLProvider.Factory(dbConf.getDataSource());
+         }
+         sqlProvider = sqlProviderFactory.create(getTableNameForGUID(directoryName), SQLProvider.DatabaseStoreType.PAGE);
       } else {
-         sqlProviderFactory = new PropertySQLProvider.Factory(dbConf.getConnectionProvider());
+         sqlProvider = JDBCUtils.getSQLProvider(dbConf.getJdbcDriverClassName(), getTableNameForGUID(directoryName), SQLProvider.DatabaseStoreType.PAGE);
       }
-      sqlProvider = sqlProviderFactory.create(getTableNameForGUID(directoryName), SQLProvider.DatabaseStoreType.PAGE);
-      final JDBCSequentialFileFactory fileFactory = new JDBCSequentialFileFactory(dbConf.getConnectionProvider(), sqlProvider, executorFactory.getExecutor(), criticalErrorListener);
+      final JDBCSequentialFileFactory fileFactory = new JDBCSequentialFileFactory(pagingFactoryFileFactory.getDbDriver().getConnection(), sqlProvider, executorFactory.getExecutor(), criticalErrorListener);
+      final int jdbcNetworkTimeout = dbConf.getJdbcNetworkTimeout();
+      if (jdbcNetworkTimeout >= 0) {
+         fileFactory.setNetworkTimeout(this.executorFactory.getExecutor(), jdbcNetworkTimeout);
+      }
       factoryToTableName.put(fileFactory, directoryName);
       return fileFactory;
    }

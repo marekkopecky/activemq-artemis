@@ -44,21 +44,21 @@ public class PostgresLargeObjectManagerTest {
 
    @Test
    public void testShouldNotUseReflection() throws SQLException {
-      PostgresLargeObjectManager manager = new PostgresLargeObjectManager();
+      PostgresLargeObjectManager manager = new PostgresLargeObjectManager(new MockConnection());
       try {
-         manager.createLO(new MockConnection());
+         manager.createLO();
          fail("Shouldn't be using reflection");
       } catch (ClassCastException ex) {
       }
    }
 
    @Test
-   public void testShouldUseReflection() throws ClassNotFoundException, NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException {
+   public void testShouldUseReflection() throws SQLException, ClassNotFoundException, NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException {
       ClassLoader loader = new FunkyClassLoader();
       Class funkyClass = loader.loadClass("org.apache.activemq.artemis.jdbc.store.file.PostgresLargeObjectManager");
-      Object manager = funkyClass.getConstructor().newInstance();
+      Object manager = funkyClass.getConstructor(Connection.class).newInstance(new MockConnection());
       try {
-         funkyClass.getMethod("createLO", Connection.class).invoke(manager, new MockConnection());
+         funkyClass.getMethod("createLO").invoke(manager);
          fail("Shouldn't be using reflection");
       } catch (java.lang.reflect.InvocationTargetException ex) {
          assertEquals("Couldn't access org.postgresql.largeobject.LargeObjectManager", ex.getCause().getMessage());

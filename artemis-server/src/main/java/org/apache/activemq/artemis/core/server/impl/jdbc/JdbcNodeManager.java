@@ -17,6 +17,7 @@
 
 package org.apache.activemq.artemis.core.server.impl.jdbc;
 
+import javax.sql.DataSource;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -28,7 +29,7 @@ import org.apache.activemq.artemis.core.server.ActivateCallback;
 import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
 import org.apache.activemq.artemis.core.server.NodeManager;
 import org.apache.activemq.artemis.core.server.impl.CleaningActivateCallback;
-import org.apache.activemq.artemis.jdbc.store.drivers.JDBCConnectionProvider;
+import org.apache.activemq.artemis.jdbc.store.drivers.JDBCUtils;
 import org.apache.activemq.artemis.jdbc.store.sql.PropertySQLProvider;
 import org.apache.activemq.artemis.jdbc.store.sql.SQLProvider;
 import org.apache.activemq.artemis.utils.ExecutorFactory;
@@ -60,38 +61,90 @@ public final class JdbcNodeManager extends NodeManager {
                                       ExecutorFactory executorFactory,
                                       IOCriticalErrorListener ioCriticalErrorListener) {
       validateTimeoutConfiguration(configuration);
-      final SQLProvider.Factory sqlProviderFactory;
-      if (configuration.getSqlProviderFactory() != null) {
-         sqlProviderFactory = configuration.getSqlProviderFactory();
+      if (configuration.getDataSource() != null) {
+         final SQLProvider.Factory sqlProviderFactory;
+         if (configuration.getSqlProviderFactory() != null) {
+            sqlProviderFactory = configuration.getSqlProviderFactory();
+         } else {
+            sqlProviderFactory = new PropertySQLProvider.Factory(configuration.getDataSource());
+         }
+         final String brokerId = java.util.UUID.randomUUID().toString();
+         return usingDataSource(brokerId,
+                                configuration.getJdbcNetworkTimeout(),
+                                configuration.getJdbcLockExpirationMillis(),
+                                configuration.getJdbcLockRenewPeriodMillis(),
+                                configuration.getJdbcLockAcquisitionTimeoutMillis(),
+                                configuration.getDataSource(),
+                                sqlProviderFactory.create(configuration.getNodeManagerStoreTableName(), SQLProvider.DatabaseStoreType.NODE_MANAGER),
+                                scheduledExecutorService,
+                                executorFactory,
+                                ioCriticalErrorListener);
       } else {
-         sqlProviderFactory = new PropertySQLProvider.Factory(configuration.getConnectionProvider());
+         final SQLProvider sqlProvider = JDBCUtils.getSQLProvider(configuration.getJdbcDriverClassName(), configuration.getNodeManagerStoreTableName(), SQLProvider.DatabaseStoreType.NODE_MANAGER);
+         final String brokerId = java.util.UUID.randomUUID().toString();
+         return usingConnectionUrl(brokerId,
+                                   configuration.getJdbcNetworkTimeout(),
+                                   configuration.getJdbcLockExpirationMillis(),
+                                   configuration.getJdbcLockRenewPeriodMillis(),
+                                   configuration.getJdbcLockAcquisitionTimeoutMillis(),
+                                   configuration.getJdbcConnectionUrl(),
+                                   configuration.getJdbcUser(),
+                                   configuration.getJdbcPassword(),
+                                   configuration.getJdbcDriverClassName(),
+                                   sqlProvider,
+                                   scheduledExecutorService,
+                                   executorFactory,
+                                   ioCriticalErrorListener);
       }
-      final String brokerId = java.util.UUID.randomUUID().toString();
-      return usingConnectionProvider(brokerId,
-                             configuration.getJdbcLockExpirationMillis(),
-                             configuration.getJdbcLockRenewPeriodMillis(),
-                             configuration.getJdbcLockAcquisitionTimeoutMillis(),
-                             configuration.getConnectionProvider(),
-                             sqlProviderFactory.create(configuration.getNodeManagerStoreTableName(), SQLProvider.DatabaseStoreType.NODE_MANAGER),
-                             scheduledExecutorService,
-                             executorFactory,
-                             ioCriticalErrorListener);
    }
 
-   private static JdbcNodeManager usingConnectionProvider(String brokerId,
+   private static JdbcNodeManager usingDataSource(String brokerId,
+                                                  int networkTimeoutMillis,
                                                   long lockExpirationMillis,
                                                   long lockRenewPeriodMillis,
                                                   long lockAcquisitionTimeoutMillis,
-                                                  JDBCConnectionProvider connectionProvider,
+                                                  DataSource dataSource,
                                                   SQLProvider provider,
                                                   ScheduledExecutorService scheduledExecutorService,
                                                   ExecutorFactory executorFactory,
                                                   IOCriticalErrorListener ioCriticalErrorListener) {
       return new JdbcNodeManager(
-         () -> JdbcSharedStateManager.usingConnectionProvider(brokerId,
+         () -> JdbcSharedStateManager.usingDataSource(brokerId,
+                                                      networkTimeoutMillis,
+                                                      executorFactory == null ? null : executorFactory.getExecutor(),
                                                       lockExpirationMillis,
-                                                      connectionProvider,
+                                                      dataSource,
                                                       provider),
+         lockRenewPeriodMillis,
+         lockAcquisitionTimeoutMillis,
+         scheduledExecutorService,
+         executorFactory,
+         ioCriticalErrorListener);
+   }
+
+   private static JdbcNodeManager usingConnectionUrl(String brokerId,
+                                                     int networkTimeoutMillis,
+                                                     long lockExpirationMillis,
+                                                     long lockRenewPeriodMillis,
+                                                     long lockAcquisitionTimeoutMillis,
+                                                     String jdbcUrl,
+                                                     String user,
+                                                     String password,
+                                                     String driverClass,
+                                                     SQLProvider provider,
+                                                     ScheduledExecutorService scheduledExecutorService,
+                                                     ExecutorFactory executorFactory,
+                                                     IOCriticalErrorListener ioCriticalErrorListener) {
+      return new JdbcNodeManager(
+         () -> JdbcSharedStateManager.usingConnectionUrl(brokerId,
+                                                         networkTimeoutMillis,
+                                                         executorFactory == null ? null : executorFactory.getExecutor(),
+                                                         lockExpirationMillis,
+                                                         jdbcUrl,
+                                                         user,
+                                                         password,
+                                                         driverClass,
+                                                         provider),
          lockRenewPeriodMillis,
          lockAcquisitionTimeoutMillis,
          scheduledExecutorService,

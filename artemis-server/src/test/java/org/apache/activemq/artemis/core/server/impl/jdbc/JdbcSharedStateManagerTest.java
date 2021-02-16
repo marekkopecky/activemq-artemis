@@ -41,17 +41,19 @@ public class JdbcSharedStateManagerTest extends ActiveMQTestBase {
    }
 
    private TestJDBCDriver createFakeDriver(boolean initializeTable) {
-      return TestJDBCDriver.usingDbConf(
-         dbConf,
+      return TestJDBCDriver.usingConnectionUrl(
+         dbConf.getJdbcConnectionUrl(),
+         dbConf.getJdbcDriverClassName(),
          sqlProvider,
          initializeTable);
    }
 
    private JdbcSharedStateManager createSharedStateManager() {
-      return JdbcSharedStateManager.usingConnectionProvider(
+      return JdbcSharedStateManager.usingConnectionUrl(
          UUID.randomUUID().toString(),
          dbConf.getJdbcLockExpirationMillis(),
-         dbConf.getConnectionProvider(),
+         dbConf.getJdbcConnectionUrl(),
+         dbConf.getJdbcDriverClassName(),
          sqlProvider);
    }
 

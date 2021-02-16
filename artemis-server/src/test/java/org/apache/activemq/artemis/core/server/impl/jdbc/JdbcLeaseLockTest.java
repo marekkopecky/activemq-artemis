@@ -17,6 +17,7 @@
 
 package org.apache.activemq.artemis.core.server.impl.jdbc;
 
+import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -66,10 +67,10 @@ public class JdbcLeaseLockTest extends ActiveMQTestBase {
          return JdbcSharedStateManager
             .createLiveLock(
                UUID.randomUUID().toString(),
-               jdbcSharedStateManager.getJdbcConnectionProvider(),
+               jdbcSharedStateManager.getConnection(),
                sqlProvider,
                acquireMillis);
-      } catch (Exception e) {
+      } catch (SQLException e) {
          throw new IllegalStateException(e);
       }
    }
@@ -84,18 +85,20 @@ public class JdbcLeaseLockTest extends ActiveMQTestBase {
 
       if (withExistingTable) {
          TestJDBCDriver testDriver = TestJDBCDriver
-            .usingDbConf(
-                dbConf,
+            .usingConnectionUrl(
+                dbConf.getJdbcConnectionUrl(),
+                dbConf.getJdbcDriverClassName(),
                 sqlProvider);
          testDriver.start();
          testDriver.stop();
       }
 
       jdbcSharedStateManager = JdbcSharedStateManager
-         .usingConnectionProvider(
+         .usingConnectionUrl(
             UUID.randomUUID().toString(),
             dbConf.getJdbcLockExpirationMillis(),
-            dbConf.getConnectionProvider(),
+            dbConf.getJdbcConnectionUrl(),
+            dbConf.getJdbcDriverClassName(),
             sqlProvider);
    }
 

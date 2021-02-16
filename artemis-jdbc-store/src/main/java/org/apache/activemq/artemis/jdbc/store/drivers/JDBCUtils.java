@@ -17,7 +17,6 @@
 package org.apache.activemq.artemis.jdbc.store.drivers;
 
 import java.sql.SQLException;
-import java.util.Map;
 
 import org.apache.activemq.artemis.jdbc.store.sql.PropertySQLProvider;
 import org.apache.activemq.artemis.jdbc.store.sql.SQLProvider;
@@ -36,13 +35,6 @@ public class JDBCUtils {
    public static SQLProvider getSQLProvider(String driverClass, String tableName, SQLProvider.DatabaseStoreType storeType) {
       PropertySQLProvider.Factory.SQLDialect dialect = PropertySQLProvider.Factory.identifyDialect(driverClass);
       logger.tracef("getSQLProvider Returning SQL provider for dialect %s for driver::%s, tableName::%s", dialect, driverClass, tableName);
-      PropertySQLProvider.Factory factory = new PropertySQLProvider.Factory(dialect);
-      return factory.create(tableName, storeType);
-   }
-
-   public static SQLProvider getSQLProvider(Map<String, Object> dataSourceProperties, String tableName, SQLProvider.DatabaseStoreType storeType) {
-      PropertySQLProvider.Factory.SQLDialect dialect = PropertySQLProvider.Factory.investigateDialect(dataSourceProperties);
-      logger.tracef("getSQLProvider Returning SQL provider for dialect %s, tableName::%s", dialect, tableName);
       PropertySQLProvider.Factory factory = new PropertySQLProvider.Factory(dialect);
       return factory.create(tableName, storeType);
    }
